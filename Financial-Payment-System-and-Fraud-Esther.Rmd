@@ -1,0 +1,243 @@
+---
+title: "Financial Payment System and Fraud"
+author: "Esther Roseline"
+date: "1/9/2020"
+output: pdf_document
+---
+
+
+## Introduction
+
+This is a report for Capstone Project II of Harvardx Data Science Program. The purpose is to develop a machine learning model to detect fraud in a financial payment system. We are using the "Synthetic data from a financial payment system" dataset downloaded from kaggle.com. Here is the Github link (https://github.com/estherlab/Synthetic-Financial-Data-for-Fraud-Detection.git). The key steps we will perform are, as follows:
+
+* Importing the Dataset and essential libraries
+* Performing Data Exploration
+* Preprocessing
+* Splitting Dataset into training and test sets
+* Testing different models
+* Measuring the performance
+
+
+## Methods/Analysis
+
+### Dataset and Libraries
+
+We are importing the dataset that contains aggregated transactional data of bank payments and the essential libraries
+
+```{r}
+library(ranger)
+library(caret)
+library(data.table)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+banksim_data <- read.csv("./banksim1/bs140513_032310.csv")
+```
+
+### Data Exploration
+
+We will now explore the data contained in the banksim_data dataframe. We will proceed by displaying the banksim_data by dimension, summary, and printing the first and last six lines of the dataframe. 
+
+```{r echo=FALSE}
+dim(banksim_data)
+summary(banksim_data)
+head(banksim_data)
+tail(banksim_data)
+```
+
+The number of transactions that have been observed as fraud  vs normal is, as follows: (0 means normal, 1 means fraud)
+
+```{r echo=FALSE}
+table(banksim_data$fraud)
+```
+
+Hence the percentage of fraud vs. normal transactions is: 
+
+```{r echo=FALSE}
+percent_fraud <- round(7200 / (7200 + 587443) * 100, 2)
+percent_normal <- 100 - percent_fraud
+```
+```{r}
+percent_fraud
+```
+```{r}
+percent_normal
+```
+Now we know we have a very unbalanced data set here. The fraud sample is only about 1% of the total dataset. So we must be very careful in looking at the accuracy of our model later. 
+
+Now we will look into the variables at the dataset. There are 10 variables 
+```{r echo=FALSE}
+names(banksim_data)
+```
+In this case, we notice that the first 9 variables (step, customer, age, gender, zipcodeOri, merchant, zipMerchant, category, amount) are features, while the 10th variable is our target (fraud)
+
+We will start looking into the variables by visualizing the distribution of each of the features to see how their variance is.
+
+```{r echo=FALSE}
+a <- banksim_data %>%
+  group_by(banksim_data$amount) %>%
+  summarize(n = n())
+b <- ggplot(a, aes(x = a$`banksim_data$amount`, y=n)) 
+b + geom_bar(stat = "identity", col = "blue") + xlab("amount") + ylab("total") + ggtitle("Amount")
+```
+```{r echo=FALSE}
+a2 <- banksim_data %>%
+  group_by(banksim_data$category) %>%
+  summarize(n = n())
+b2 <- ggplot(a2, aes(x = a2$`banksim_data$category`, y=n)) 
+b2 + geom_bar(stat = "identity", col = "black") + xlab("category") + ylab("total") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("Category")
+```
+```{r echo=FALSE}
+a3 <- banksim_data %>%
+  group_by(banksim_data$merchant) %>%
+  summarize(n = n())
+b3 <- ggplot(a3, aes(x = a3$`banksim_data$merchant`, y=n)) 
+b3 + geom_bar(stat = "identity", col = "red") + xlab("Merchant") + ylab("total") + ggtitle("Merchant")
+```
+```{r echo=FALSE}
+a4 <- banksim_data %>%
+  group_by(banksim_data$zipMerchant) %>%
+  summarize(n = n())
+b4 <- ggplot(a4, aes(x = a4$`banksim_data$zipMerchant`, y=n)) 
+b4 + geom_bar(stat = "identity", col = "yellow") + xlab("zipMerchant") + ylab("total") + ggtitle("ZipMerchant")
+```
+```{r echo=FALSE}
+a5 <- banksim_data %>%
+  group_by(banksim_data$zipcodeOri) %>%
+  summarize(n = n())
+b5 <- ggplot(a5, aes(x = a5$`banksim_data$zipcodeOri`, y=n)) 
+b5 + geom_bar(stat = "identity", col = "green") + xlab("zipcodeOri") + ylab("total") + ggtitle("zipcodeOri")
+```
+```{r echo=FALSE}
+a6 <- banksim_data %>%
+  group_by(banksim_data$gender) %>%
+  summarize(n = n())
+b6 <- ggplot(a6, aes(x = a6$`banksim_data$gender`, y=n)) 
+b6 + geom_bar(stat = "identity", col = "black") + xlab("gender") + ylab("total") + ggtitle("Gender")
+```
+```{r echo=FALSE}
+a7 <- banksim_data %>%
+  group_by(banksim_data$age) %>%
+  summarize(n = n())
+b7 <- ggplot(a7, aes(x = a7$`banksim_data$age`, y=n)) 
+b7 + geom_bar(stat = "identity", col = "red") + xlab("Age") + ylab("total") + ggtitle("Age")
+```
+```{r echo=FALSE}
+a8 <- banksim_data %>%
+  group_by(banksim_data$customer) %>%
+  summarize(n = n())
+b8 <- ggplot(a8, aes(x = a8$`banksim_data$customer`, y=n)) 
+b8 + geom_bar(stat = "identity", col = "blue") + xlab("Customer") + ylab("total") + ggtitle("Customer")
+```
+```{r echo=FALSE}
+a9 <- banksim_data %>%
+  group_by(banksim_data$step) %>%
+  summarize(n = n())
+b9 <- ggplot(a9, aes(x = a9$`banksim_data$step`, y=n)) 
+b9 + geom_bar(stat = "identity", col = "red") + xlab("Step") + ylab("total") + ggtitle("Step")
+```
+
+From the visualizations, we can safely infer that there are features that won't affect our classification process/prediction so we can take out/ignore in our models:
+
+* zipcodeOri and zipMerchant, because they are constant/only have 1 unique entry. 
+* Customer, because practically anybody can have any random customer IDs, and it is better that we just account for the relevant customers' characteristics by the other features (such as gender and age). We will factor in the customers' characteristics in our model. 
+
+## Preprocessing
+
+We will standardize the amount data in our banksim_data, and simulatenously create a new dataset that has had zipcodeOri, zipMerchant, and Customer, and step data removed
+```{r}
+banksim_data$amount <- scale(banksim_data$amount)
+Standardized_Data <- banksim_data[,-c(1)]
+NewData_banksim <- Standardized_Data [,-c(1,4,6)]
+```
+Our new data now looks like as follows:
+```{r echo=FALSE}
+head(NewData_banksim)
+```
+
+## Splitting Datasets
+
+We will now split our datasets into training and test sets. The test set will be 20% of the whole data set. The 80% will go to the train set.
+
+```{r}
+set.seed(1)
+test_index <- createDataPartition(y = NewData_banksim$fraud, times = 1, p = 0.2, list = FALSE)
+train_data <- NewData_banksim[-test_index,]
+test_data <- NewData_banksim[test_index,]
+```
+```{r echo=FALSE}
+summary(test_data)
+summary(train_data)
+```
+
+## Testing different models
+
+### First Model: Decision Tree
+
+The first model we will try is a Decision Tree model. 
+
+```{r}
+require(tree)
+library(rpart)
+library(rpart.plot)
+tree.banksim <- rpart(fraud~.,train_data, method='class')
+```
+However, plotting the classification tree produces a very hard-to-read figure
+Nonetheless, let us see the summary of our classification tree: 
+```{r echo=FALSE}
+summary(tree.banksim)
+```
+From the summary, however, we discover in Variable Importance that actually only "amount", "merchant", and "category" which are the most important features in our dataset for predicting fraud. 
+
+We will now review our prediction:
+```{r}
+tree.pred <- predict(tree.banksim, test_data, type="class")
+with(test_data, table(tree.pred, fraud))
+```
+Because we have an unbalanced data, we need to see the confusion matrix as follows: 
+```{r}
+confusionMatrix(tree.pred, as.factor(test_data$fraud))
+```
+Here in this case, we can see that the balanced accuracy is about 0.86. And it can detect fraud at the rate of 0.72 (specificity). The model works pretty fine too on the unbalanced data since it produces high precision and high recall. 
+
+### Logistic Regression Model
+
+So now we will turn to Logistic Regression Model and see if it will perform better. As we have discovered that the most important variables in our dataset are merchant, amount, and category, we will now include these features in our model - that is, we are to predict fraud, given/based on the merchant, amount, and category:
+```{r}
+fit_glm <- glm(fraud ~ ., train_data, family = "binomial")
+p_hat_glm <- predict(fit_glm, test_data, type = "response")
+y_hat_glm <- ifelse(p_hat_glm > 0.5, 1, 0) %>% factor()
+```
+The performance of our model will now be measured by Confusion Matrix:
+```{r}
+confusionMatrix(data = y_hat_glm, reference = as.factor(test_data$fraud))
+```
+The model also has high precision and recall so it works also fine on the unbalanced data. However, here in this case, we can see that the balanced accuracy slightly increases to about 0.87. And that it can predict fraud better (0.73). The number of fraud predicted as fraud increases its number to 1044, although on the contrary, its "non-fraud" predicted as "non-fraud" decreases (sensitivity). Which means, there is a risk that there are more non-fraudulent transactions will be predicted as fraud. Nevertheless, it is much better than having more real fraud slipped through being dismissed as non-fraud.
+
+## Results
+
+Based on the experiments of different models and measuring their performance, it is suggested that the best prediction is produced using the **Logistic Regression Model** because it can work on unbalanced data (high recall and precision) and can better detect fraud than the decision tree, as well as has a higher balanced accuracy. First we notice that our data is very unbalanced and hence must be wary about it. Then we eliminate the irrelevant variables, and we take into account all the other variables until we found the most important variables. We then found that the Logistic Regression Model can work fine on the unbalanced data and produces a better prediction to detect fraud in our data. The final model can be demonstrated as it is being run on our train and test set, as follows: 
+
+```{r}
+fit_glm <- glm(fraud ~ merchant + amount + category, train_data, family = "binomial")
+p_hat_glm <- predict(fit_glm, test_data, type = "response")
+y_hat_glm <- ifelse(p_hat_glm > 0.5, 1, 0) %>% factor()
+```
+
+The prediction generated is: 
+```{r}
+head(y_hat_glm)
+```
+
+With the balanced accuracy of 0.87
+```{r}
+confusionMatrix(data = y_hat_glm, reference = as.factor(test_data$fraud))
+```
+
+## Conclusion 
+
+The core of the whole process in making a model to detect fraud in financial payment system is that we must build an algorithm with the past data we have collected (with all variables related to the transaction concerned) in order to detect future possible occurences of fraud. We have reached the conclusion that in improving our models to minimize errors, there are at least two things that are most essential to be taken into account while producing detection system: we need to discover the relevant variables, and take into account the unbalanced data we possibly have. 
+
+There are, however, some limitations on the models we develop. Some of the major limitations are: first, not all past fraud cases are or have been detected, hence our input data used to train and test might be flawed. Second, the most important variables detected by our algorithm might also be mistaken, since in real life not everything can be captured by data -- fraud, in reality, is a human behaviour problem. 
+
+In the future, these kinds of models must also be actively analyzed by fraud experts, investigators, and behavioural analysts in order to better support data scientists in developing their models. 
